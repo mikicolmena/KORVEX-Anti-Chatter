@@ -1,6 +1,7 @@
 import sys
-import time
+import os
 import ctypes
+import time
 
 try:
     import keyboard
@@ -12,7 +13,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QLabel, QPushButton, QSpinBox, QSystemTrayIcon, QMenu, QStyle, 
                              QFrame, QDialog, QCheckBox, QComboBox)
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSettings
-from PyQt6.QtGui import QFont, QAction, QIcon
+from PyQt6.QtGui import QFont, QAction, QIcon, QPixmap
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 # ============================================================================
@@ -113,11 +114,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KORVEX Anti-Chatter")
-        # Aumentamos un poco el alto para que quepa el nuevo menú
         self.setFixedSize(380, 310) 
-        
-        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon)
-        self.setWindowIcon(icon)
         
         self.settings = QSettings("Korvex", "AntiChatter")
         
@@ -128,10 +125,8 @@ class MainWindow(QMainWindow):
         
         self.core = AntiChatterCore()
         self.core.bounce_caught.connect(self.on_bounce_caught)
-
-        self.setup_tray_icon(icon)
         
-        # Añadido el CSS del QComboBox basado en tu código
+        # Estilos KORVEX
         self.setStyleSheet("""
             QMainWindow { background-color: #1e1e1e; }
             QLabel { color: white; }
@@ -152,11 +147,43 @@ class MainWindow(QMainWindow):
         frame.setObjectName("MainFrame")
         frame_layout = QVBoxLayout(frame)
         
+        # --- CARGA DEL LOGO (Estilo Korvex Studio) ---
+        header_layout = QHBoxLayout()
+        lbl_logo = QLabel()
+        
+        if getattr(sys, 'frozen', False): 
+            base_path = sys._MEIPASS
+        else: 
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        logo_path = os.path.join(base_path, "KorvexLogo.ico")
+        
+        if os.path.exists(logo_path):
+            icon = QIcon(logo_path)
+            self.setWindowIcon(icon)
+            
+            pixmap = QPixmap(logo_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaledToHeight(35, Qt.TransformationMode.SmoothTransformation)
+                lbl_logo.setPixmap(scaled_pixmap)
+                lbl_logo.setStyleSheet("border: none; background: transparent;")
+        else:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+            self.setWindowIcon(icon)
+            lbl_logo.setText("🛡️")
+            lbl_logo.setStyleSheet("font-size: 24px; border: none; background: transparent;")
+
+        self.setup_tray_icon(icon)
+        
         lbl_title = QLabel("KORVEX ANTI-CHATTER")
         lbl_title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         lbl_title.setStyleSheet("color: #00aaff; letter-spacing: 1px;")
-        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        frame_layout.addWidget(lbl_title)
+        
+        header_layout.addStretch()
+        header_layout.addWidget(lbl_logo)
+        header_layout.addWidget(lbl_title)
+        header_layout.addStretch()
+        frame_layout.addLayout(header_layout)
 
         # --- FILA 1: MILISEGUNDOS ---
         row_ms = QHBoxLayout()
@@ -181,7 +208,6 @@ class MainWindow(QMainWindow):
         self.combo_close = QComboBox()
         self.combo_close.addItems(["Preguntar", "Minimizar a bandeja", "Salir del programa"])
         
-        # Leemos qué guardó el usuario la última vez
         saved_action = self.settings.value("close_action", "ask")
         if saved_action == "minimize":
             self.combo_close.setCurrentIndex(1)
@@ -214,14 +240,10 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(frame)
         self.toggle_filter()
 
-    # Guarda la opción del desplegable al instante
     def on_close_action_changed(self, index):
-        if index == 0:
-            self.settings.setValue("close_action", "ask")
-        elif index == 1:
-            self.settings.setValue("close_action", "minimize")
-        elif index == 2:
-            self.settings.setValue("close_action", "exit")
+        if index == 0: self.settings.setValue("close_action", "ask")
+        elif index == 1: self.settings.setValue("close_action", "minimize")
+        elif index == 2: self.settings.setValue("close_action", "exit")
 
     def wake_up(self):
         socket = self.server.nextPendingConnection()
@@ -306,10 +328,10 @@ class MainWindow(QMainWindow):
             if dialog.chk_remember.isChecked():
                 if result == 1: 
                     self.settings.setValue("close_action", "minimize")
-                    self.combo_close.setCurrentIndex(1) # Actualiza el desplegable automáticamente
+                    self.combo_close.setCurrentIndex(1) 
                 if result == 2: 
                     self.settings.setValue("close_action", "exit")
-                    self.combo_close.setCurrentIndex(2) # Actualiza el desplegable automáticamente
+                    self.combo_close.setCurrentIndex(2) 
                 
             if result == 1:
                 event.ignore()
