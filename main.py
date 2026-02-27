@@ -60,7 +60,7 @@ class CloseActionDialog(QDialog):
         layout.addLayout(btn_layout)
 
 # ============================================================================
-# NÚCLEO DEL FILTRO
+# NÚCLEO DEL FILTRO (Con Lista Blanca Inteligente)
 # ============================================================================
 class AntiChatterCore(QObject):
     bounce_caught = pyqtSignal(str, int)
@@ -71,7 +71,6 @@ class AntiChatterCore(QObject):
         self.threshold = 0.050
         self.ultimos_tiempos = {}
         self.bloqueos_totales = 0
-        self.ignorar = ['backspace', 'enter', 'tab', 'shift', 'ctrl', 'alt', 'left', 'right', 'up', 'down', 'esc']
         self._hook = None
 
     def set_threshold(self, ms):
@@ -93,9 +92,13 @@ class AntiChatterCore(QObject):
 
     def filtro(self, evento):
         if not self.active: return
+        
         if evento.event_type == keyboard.KEY_DOWN:
             tecla = evento.name
-            if tecla in self.ignorar: return
+            
+            # Ignorar teclas especiales de más de 1 carácter (salvo 'space')
+            if len(tecla) > 1 and tecla != 'space':
+                return
 
             ahora = time.time()
             if tecla in self.ultimos_tiempos:
@@ -147,7 +150,7 @@ class MainWindow(QMainWindow):
         frame.setObjectName("MainFrame")
         frame_layout = QVBoxLayout(frame)
         
-        # --- CARGA DEL LOGO (Estilo Korvex Studio) ---
+        # --- CARGA DEL LOGO ---
         header_layout = QHBoxLayout()
         lbl_logo = QLabel()
         
@@ -300,9 +303,18 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
     def tray_icon_activated(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+        # 1 clic izquierdo: Muestra u oculta la ventana
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self.showNormal()
+                self.activateWindow()
+        # Doble clic izquierdo: Asegura que se muestre la ventana
+        elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.showNormal()
             self.activateWindow()
+        # El clic derecho ya está manejado nativamente por el setContextMenu
 
     def force_quit(self):
         self.core.stop()
