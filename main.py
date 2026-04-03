@@ -60,7 +60,7 @@ class CloseActionDialog(QDialog):
         layout.addLayout(btn_layout)
 
 # ============================================================================
-# NÚCLEO DEL FILTRO (Con Lista Blanca Inteligente)
+# NÚCLEO DEL FILTRO (Motor V2 - Inmune a Auto-Repetición y Desfases)
 # ============================================================================
 class AntiChatterCore(QObject):
     bounce_caught = pyqtSignal(str, int)
@@ -69,16 +69,23 @@ class AntiChatterCore(QObject):
         super().__init__()
         self.active = False
         self.threshold = 0.050
+        self.threshold_space = 0.120 # Valor por defecto más alto para el espacio
         self.ultimos_tiempos = {}
+        self.key_states = {} # Guarda si la tecla está físicamente pulsada
+        self.ultima_tecla_global = None # Evita borrar letras que no tocan
         self.bloqueos_totales = 0
         self._hook = None
 
     def set_threshold(self, ms):
         self.threshold = ms / 1000.0
+        
+    def set_threshold_space(self, ms):
+        self.threshold_space = ms / 1000.0
 
     def start(self):
         if not self.active:
             self.ultimos_tiempos.clear()
+            self.key_states.clear()
             self._hook = keyboard.hook(self.filtro)
             self.active = True
 
@@ -93,22 +100,46 @@ class AntiChatterCore(QObject):
     def filtro(self, evento):
         if not self.active: return
         
-        if evento.event_type == keyboard.KEY_DOWN:
-            tecla = evento.name
-            
-            # Ignorar teclas especiales de más de 1 carácter (salvo 'space')
-            if len(tecla) > 1 and tecla != 'space':
-                return
+        tecla = evento.name
+        
+        # 1. Ignorar teclas especiales pero permitir el Teclado Numérico y el Espacio
+        teclas_largas_validas = ['space', 'num 0', 'num 1', 'num 2', 'num 3', 'num 4', 'num 5', 'num 6', 'num 7', 'num 8', 'num 9', 'decimal', 'add', 'subtract', 'multiply', 'divide']
+        if len(tecla) > 1 and tecla not in teclas_largas_validas:
+            return
 
+        # 2. Registrar cuando la tecla se levanta físicamente
+        if evento.event_type == keyboard.KEY_UP:
+            self.key_states[tecla] = False
+            return
+
+        if evento.event_type == keyboard.KEY_DOWN:
+            # 3. FILTRO DE AUTO-REPETICIÓN (Evita fallos al mantener pulsado)
+            # Si Windows envía un KEY_DOWN pero nuestra tecla ya estaba pulsada, es auto-repetición.
+            if self.key_states.get(tecla, False) == True:
+                return 
+            
+            # Marcamos la tecla como físicamente pulsada
+            self.key_states[tecla] = True
             ahora = time.time()
+            
             if tecla in self.ultimos_tiempos:
                 delta = ahora - self.ultimos_tiempos[tecla]
-                if delta < self.threshold:
-                    self.bloqueos_totales += 1
-                    keyboard.press_and_release('backspace')
-                    self.bounce_caught.emit(tecla, self.bloqueos_totales)
-                    return 
+                
+                # Asignar el umbral correspondiente
+                umbral_actual = self.threshold_space if tecla == 'space' else self.threshold
+                
+                if delta < umbral_actual:
+                    # 4. SEGURO DE SECUENCIA
+                    # Solo borramos si el rebote es de la MISMA tecla que pulsamos justo antes
+                    if self.ultima_tecla_global == tecla:
+                        self.bloqueos_totales += 1
+                        keyboard.press_and_release('backspace')
+                        self.bounce_caught.emit(tecla, self.bloqueos_totales)
+                        return 
+                        
+            # Si es una pulsación válida y limpia, actualizamos el registro
             self.ultimos_tiempos[tecla] = ahora
+            self.ultima_tecla_global = tecla
 
 # ============================================================================
 # VENTANA PRINCIPAL
@@ -117,7 +148,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KORVEX Anti-Chatter")
-        self.setFixedSize(380, 310) 
+        # Hemos subido el alto a 350 para acomodar el nuevo control
+        self.setFixedSize(380, 350) 
         
         self.settings = QSettings("Korvex", "AntiChatter")
         
@@ -188,12 +220,11 @@ class MainWindow(QMainWindow):
         header_layout.addStretch()
         frame_layout.addLayout(header_layout)
 
-        # --- FILA 1: MILISEGUNDOS ---
+        # --- FILA 1: MILISEGUNDOS GENERALES ---
         row_ms = QHBoxLayout()
-        lbl_ms = QLabel("Umbral de bloqueo:")
+        lbl_ms = QLabel("Umbral Letras:")
         self.spin_ms = QSpinBox()
         self.spin_ms.setRange(10, 200)
-        
         last_ms = self.settings.value("threshold_ms", 50, type=int)
         self.spin_ms.setValue(last_ms)
         self.core.set_threshold(last_ms)
@@ -205,7 +236,24 @@ class MainWindow(QMainWindow):
         row_ms.addWidget(self.spin_ms)
         frame_layout.addLayout(row_ms)
 
-        # --- FILA 2: ACCIÓN AL CERRAR ---
+        # --- FILA 2: MILISEGUNDOS DEL ESPACIO (NUEVO) ---
+        row_ms_space = QHBoxLayout()
+        lbl_ms_space = QLabel("Umbral Espacio:")
+        lbl_ms_space.setStyleSheet("color: #aaa;") # Un toque de color distinto para diferenciar
+        self.spin_ms_space = QSpinBox()
+        self.spin_ms_space.setRange(10, 300) # Rango más alto permitido
+        last_ms_space = self.settings.value("threshold_space_ms", 120, type=int)
+        self.spin_ms_space.setValue(last_ms_space)
+        self.core.set_threshold_space(last_ms_space)
+        self.spin_ms_space.setSuffix(" ms")
+        self.spin_ms_space.valueChanged.connect(self.on_ms_space_changed)
+        
+        row_ms_space.addWidget(lbl_ms_space)
+        row_ms_space.addStretch()
+        row_ms_space.addWidget(self.spin_ms_space)
+        frame_layout.addLayout(row_ms_space)
+
+        # --- FILA 3: ACCIÓN AL CERRAR ---
         row_close = QHBoxLayout()
         lbl_close = QLabel("Acción al cerrar (X):")
         self.combo_close = QComboBox()
@@ -258,6 +306,10 @@ class MainWindow(QMainWindow):
     def on_ms_changed(self, val):
         self.core.set_threshold(val)
         self.settings.setValue("threshold_ms", val)
+        
+    def on_ms_space_changed(self, val):
+        self.core.set_threshold_space(val)
+        self.settings.setValue("threshold_space_ms", val)
 
     def update_btn_style(self, active):
         if active:
@@ -303,18 +355,15 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
     def tray_icon_activated(self, reason):
-        # 1 clic izquierdo: Muestra u oculta la ventana
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.isVisible():
                 self.hide()
             else:
                 self.showNormal()
                 self.activateWindow()
-        # Doble clic izquierdo: Asegura que se muestre la ventana
         elif reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.showNormal()
             self.activateWindow()
-        # El clic derecho ya está manejado nativamente por el setContextMenu
 
     def force_quit(self):
         self.core.stop()
