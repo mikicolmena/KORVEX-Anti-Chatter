@@ -60,7 +60,7 @@ class CloseActionDialog(QDialog):
         layout.addLayout(btn_layout)
 
 # ============================================================================
-# NÚCLEO DEL FILTRO (Motor V2 - Inmune a Auto-Repetición y Desfases)
+# NÚCLEO DEL FILTRO (Motor V3 - GAP Logic con Alta Precisión)
 # ============================================================================
 class AntiChatterCore(QObject):
     bounce_caught = pyqtSignal(str, int)
@@ -69,12 +69,13 @@ class AntiChatterCore(QObject):
         super().__init__()
         self.active = False
         self.threshold = 0.050
-        self.threshold_space = 0.120 # Valor por defecto más alto para el espacio
-        self.ultimos_tiempos = {}
-        self.key_states = {} # Guarda si la tecla está físicamente pulsada
-        self.ultima_tecla_global = None # Evita borrar letras que no tocan
+        self.threshold_space = 0.120 
         self.bloqueos_totales = 0
         self._hook = None
+        
+        # Variables de control de estado y tiempos de subida
+        self.last_up_time = {}   
+        self.key_is_down = {}    
 
     def set_threshold(self, ms):
         self.threshold = ms / 1000.0
@@ -84,8 +85,8 @@ class AntiChatterCore(QObject):
 
     def start(self):
         if not self.active:
-            self.ultimos_tiempos.clear()
-            self.key_states.clear()
+            self.last_up_time.clear()
+            self.key_is_down.clear()
             self._hook = keyboard.hook(self.filtro)
             self.active = True
 
@@ -102,44 +103,45 @@ class AntiChatterCore(QObject):
         
         tecla = evento.name
         
-        # 1. Ignorar teclas especiales pero permitir el Teclado Numérico y el Espacio
-        teclas_largas_validas = ['space', 'num 0', 'num 1', 'num 2', 'num 3', 'num 4', 'num 5', 'num 6', 'num 7', 'num 8', 'num 9', 'decimal', 'add', 'subtract', 'multiply', 'divide']
-        if len(tecla) > 1 and tecla not in teclas_largas_validas:
+        # Ignorar teclas de control, excepto el espacio
+        if len(tecla) > 1 and tecla != 'space':
             return
 
-        # 2. Registrar cuando la tecla se levanta físicamente
+        # Usamos perf_counter para extrema precisión en nanosegundos
+        ahora = time.perf_counter()
+
         if evento.event_type == keyboard.KEY_UP:
-            self.key_states[tecla] = False
+            self.key_is_down[tecla] = False
+            self.last_up_time[tecla] = ahora
             return
 
         if evento.event_type == keyboard.KEY_DOWN:
-            # 3. FILTRO DE AUTO-REPETICIÓN (Evita fallos al mantener pulsado)
-            # Si Windows envía un KEY_DOWN pero nuestra tecla ya estaba pulsada, es auto-repetición.
-            if self.key_states.get(tecla, False) == True:
-                return 
+            # 1. Si la tecla ya estaba bajada, es Auto-Repetición de Windows.
+            # No hay rebote, simplemente la dejamos pasar intacta.
+            if self.key_is_down.get(tecla, False) == True:
+                return
+
+            self.key_is_down[tecla] = True
             
-            # Marcamos la tecla como físicamente pulsada
-            self.key_states[tecla] = True
-            ahora = time.time()
+            # ¿Cuánto tiempo ha pasado desde que SOLTAMOS esta tecla?
+            ultimo_up = self.last_up_time.get(tecla, 0)
             
-            if tecla in self.ultimos_tiempos:
-                delta = ahora - self.ultimos_tiempos[tecla]
-                
-                # Asignar el umbral correspondiente
-                umbral_actual = self.threshold_space if tecla == 'space' else self.threshold
-                
-                if delta < umbral_actual:
-                    # 4. SEGURO DE SECUENCIA
-                    # Solo borramos si el rebote es de la MISMA tecla que pulsamos justo antes
-                    if self.ultima_tecla_global == tecla:
-                        self.bloqueos_totales += 1
-                        keyboard.press_and_release('backspace')
-                        self.bounce_caught.emit(tecla, self.bloqueos_totales)
-                        return 
-                        
-            # Si es una pulsación válida y limpia, actualizamos el registro
-            self.ultimos_tiempos[tecla] = ahora
-            self.ultima_tecla_global = tecla
+            # Si es la primera vez que se pulsa desde que se abrió el programa, pasa.
+            if ultimo_up == 0:
+                return
+
+            delta = ahora - ultimo_up
+            umbral_actual = self.threshold_space if tecla == 'space' else self.threshold
+
+            # 2. Si el tiempo entre Soltar (UP) y Volver a Pulsar (DOWN) es menor al umbral, 
+            # es matemáticamente y físicamente imposible que sea un humano. Es un rebote de hardware.
+            if delta < umbral_actual:
+                self.bloqueos_totales += 1
+                keyboard.press_and_release('backspace')
+                self.bounce_caught.emit(tecla, self.bloqueos_totales)
+                # OJO: Al no actualizar el last_up_time aquí, si rebota por tercera o cuarta vez
+                # seguirá calculando el delta desde el UP original y borrará todas las R fantasma.
+                return
 
 # ============================================================================
 # VENTANA PRINCIPAL
@@ -148,7 +150,6 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KORVEX Anti-Chatter")
-        # Hemos subido el alto a 350 para acomodar el nuevo control
         self.setFixedSize(380, 350) 
         
         self.settings = QSettings("Korvex", "AntiChatter")
@@ -236,12 +237,12 @@ class MainWindow(QMainWindow):
         row_ms.addWidget(self.spin_ms)
         frame_layout.addLayout(row_ms)
 
-        # --- FILA 2: MILISEGUNDOS DEL ESPACIO (NUEVO) ---
+        # --- FILA 2: MILISEGUNDOS DEL ESPACIO ---
         row_ms_space = QHBoxLayout()
         lbl_ms_space = QLabel("Umbral Espacio:")
-        lbl_ms_space.setStyleSheet("color: #aaa;") # Un toque de color distinto para diferenciar
+        lbl_ms_space.setStyleSheet("color: #aaa;")
         self.spin_ms_space = QSpinBox()
-        self.spin_ms_space.setRange(10, 300) # Rango más alto permitido
+        self.spin_ms_space.setRange(10, 300) 
         last_ms_space = self.settings.value("threshold_space_ms", 120, type=int)
         self.spin_ms_space.setValue(last_ms_space)
         self.core.set_threshold_space(last_ms_space)
