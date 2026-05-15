@@ -1,6 +1,6 @@
 import sys
 import os
-import ctypes
+import platform
 import time
 
 try:
@@ -15,6 +15,55 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSettings
 from PyQt6.QtGui import QFont, QAction, QIcon, QPixmap
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+
+# ============================================================================
+# FUNCIONES DEL SISTEMA OPERATIVO (AUTOSTART)
+# ============================================================================
+def set_autostart(enable):
+    app_name = "KorvexAntiChatter"
+    
+    if getattr(sys, 'frozen', False):
+        exec_path = sys.executable
+    else:
+        exec_path = f"{sys.executable} \"{os.path.abspath(__file__)}\""
+
+    if platform.system() == "Windows":
+        import winreg
+        key = winreg.HKEY_CURRENT_USER
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            registry_key = winreg.OpenKey(key, key_path, 0, winreg.KEY_WRITE)
+            if enable:
+                winreg.SetValueEx(registry_key, app_name, 0, winreg.REG_SZ, exec_path)
+            else:
+                try: winreg.DeleteValue(registry_key, app_name)
+                except FileNotFoundError: pass
+            winreg.CloseKey(registry_key)
+        except Exception as e:
+            print(f"Error autostart Windows: {e}")
+
+    elif platform.system() == "Linux":
+        autostart_dir = os.path.expanduser("~/.config/autostart")
+        if not os.path.exists(autostart_dir):
+            os.makedirs(autostart_dir)
+        
+        desktop_file_path = os.path.join(autostart_dir, f"{app_name}.desktop")
+        
+        if enable:
+            desktop_content = f"""[Desktop Entry]
+Type=Application
+Exec={exec_path}
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name={app_name}
+Comment=Korvex Anti-Chatter
+"""
+            with open(desktop_file_path, "w") as f:
+                f.write(desktop_content)
+        else:
+            if os.path.exists(desktop_file_path):
+                os.remove(desktop_file_path)
 
 # ============================================================================
 # DIÁLOGO DE CIERRE
@@ -36,7 +85,6 @@ class CloseActionDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        
         lbl_title = QLabel("¿Qué deseas hacer?")
         lbl_title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         lbl_title.setStyleSheet("color: #00aaff;")
@@ -60,7 +108,7 @@ class CloseActionDialog(QDialog):
         layout.addLayout(btn_layout)
 
 # ============================================================================
-# NÚCLEO DEL FILTRO (Motor V3 - GAP Logic con Alta Precisión)
+# NÚCLEO DEL FILTRO (Motor V3 - GAP Logic de Alta Precisión)
 # ============================================================================
 class AntiChatterCore(QObject):
     bounce_caught = pyqtSignal(str, int)
@@ -72,16 +120,11 @@ class AntiChatterCore(QObject):
         self.threshold_space = 0.120 
         self.bloqueos_totales = 0
         self._hook = None
-        
-        # Variables de control de estado y tiempos de subida
         self.last_up_time = {}   
         self.key_is_down = {}    
 
-    def set_threshold(self, ms):
-        self.threshold = ms / 1000.0
-        
-    def set_threshold_space(self, ms):
-        self.threshold_space = ms / 1000.0
+    def set_threshold(self, ms): self.threshold = ms / 1000.0
+    def set_threshold_space(self, ms): self.threshold_space = ms / 1000.0
 
     def start(self):
         if not self.active:
@@ -100,14 +143,9 @@ class AntiChatterCore(QObject):
 
     def filtro(self, evento):
         if not self.active: return
-        
         tecla = evento.name
         
-        # Ignorar teclas de control, excepto el espacio
-        if len(tecla) > 1 and tecla != 'space':
-            return
-
-        # Usamos perf_counter para extrema precisión en nanosegundos
+        if len(tecla) > 1 and tecla != 'space': return
         ahora = time.perf_counter()
 
         if evento.event_type == keyboard.KEY_UP:
@@ -116,31 +154,19 @@ class AntiChatterCore(QObject):
             return
 
         if evento.event_type == keyboard.KEY_DOWN:
-            # 1. Si la tecla ya estaba bajada, es Auto-Repetición de Windows.
-            # No hay rebote, simplemente la dejamos pasar intacta.
-            if self.key_is_down.get(tecla, False) == True:
-                return
-
+            if self.key_is_down.get(tecla, False) == True: return
             self.key_is_down[tecla] = True
             
-            # ¿Cuánto tiempo ha pasado desde que SOLTAMOS esta tecla?
             ultimo_up = self.last_up_time.get(tecla, 0)
-            
-            # Si es la primera vez que se pulsa desde que se abrió el programa, pasa.
-            if ultimo_up == 0:
-                return
+            if ultimo_up == 0: return
 
             delta = ahora - ultimo_up
             umbral_actual = self.threshold_space if tecla == 'space' else self.threshold
 
-            # 2. Si el tiempo entre Soltar (UP) y Volver a Pulsar (DOWN) es menor al umbral, 
-            # es matemáticamente y físicamente imposible que sea un humano. Es un rebote de hardware.
             if delta < umbral_actual:
                 self.bloqueos_totales += 1
                 keyboard.press_and_release('backspace')
                 self.bounce_caught.emit(tecla, self.bloqueos_totales)
-                # OJO: Al no actualizar el last_up_time aquí, si rebota por tercera o cuarta vez
-                # seguirá calculando el delta desde el UP original y borrará todas las R fantasma.
                 return
 
 # ============================================================================
@@ -150,7 +176,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KORVEX Anti-Chatter")
-        self.setFixedSize(380, 350) 
+        self.setFixedSize(380, 400) 
         
         self.settings = QSettings("Korvex", "AntiChatter")
         
@@ -162,7 +188,6 @@ class MainWindow(QMainWindow):
         self.core = AntiChatterCore()
         self.core.bounce_caught.connect(self.on_bounce_caught)
         
-        # Estilos KORVEX
         self.setStyleSheet("""
             QMainWindow { background-color: #1e1e1e; }
             QLabel { color: white; }
@@ -173,6 +198,9 @@ class MainWindow(QMainWindow):
             QComboBox { background: #2d2d30; border: 1px solid #3e3e42; padding: 5px; color: white; border-radius: 5px; min-width: 140px; font-size: 12px; }
             QComboBox::drop-down { border: none; }
             QComboBox QAbstractItemView { background-color: #2d2d30; color: white; selection-background-color: #00aaff; border: 1px solid #3e3e42; }
+            QCheckBox { color: white; font-size: 12px; }
+            QCheckBox::indicator { width: 15px; height: 15px; background: #2d2d30; border: 1px solid #555; }
+            QCheckBox::indicator:checked { background: #00aaff; }
         """)
 
         central_widget = QWidget()
@@ -183,7 +211,7 @@ class MainWindow(QMainWindow):
         frame.setObjectName("MainFrame")
         frame_layout = QVBoxLayout(frame)
         
-        # --- CARGA DEL LOGO ---
+        # --- CARGA DEL LOGO (Multiplataforma) ---
         header_layout = QHBoxLayout()
         lbl_logo = QLabel()
         
@@ -192,7 +220,10 @@ class MainWindow(QMainWindow):
         else: 
             base_path = os.path.dirname(os.path.abspath(__file__))
             
-        logo_path = os.path.join(base_path, "KorvexLogo.ico")
+        # Busca el PNG o el ICO automáticamente
+        logo_path = os.path.join(base_path, "KorvexLogo.png")
+        if not os.path.exists(logo_path):
+            logo_path = os.path.join(base_path, "KorvexLogo.ico")
         
         if os.path.exists(logo_path):
             icon = QIcon(logo_path)
@@ -256,24 +287,37 @@ class MainWindow(QMainWindow):
 
         # --- FILA 3: ACCIÓN AL CERRAR ---
         row_close = QHBoxLayout()
-        lbl_close = QLabel("Acción al cerrar (X):")
+        lbl_close = QLabel("Acción al cerrar:")
         self.combo_close = QComboBox()
         self.combo_close.addItems(["Preguntar", "Minimizar a bandeja", "Salir del programa"])
         
         saved_action = self.settings.value("close_action", "ask")
-        if saved_action == "minimize":
-            self.combo_close.setCurrentIndex(1)
-        elif saved_action == "exit":
-            self.combo_close.setCurrentIndex(2)
-        else:
-            self.combo_close.setCurrentIndex(0)
+        if saved_action == "minimize": self.combo_close.setCurrentIndex(1)
+        elif saved_action == "exit": self.combo_close.setCurrentIndex(2)
+        else: self.combo_close.setCurrentIndex(0)
             
         self.combo_close.currentIndexChanged.connect(self.on_close_action_changed)
-
         row_close.addWidget(lbl_close)
         row_close.addStretch()
         row_close.addWidget(self.combo_close)
         frame_layout.addLayout(row_close)
+
+        # --- FILA 4: CHECKBOXES (AUTOSTART Y MINIMIZADO) ---
+        chk_layout = QVBoxLayout()
+        
+        self.chk_autostart = QCheckBox("Iniciar automáticamente con el sistema")
+        is_autostart = self.settings.value("autostart_enabled", False, type=bool)
+        self.chk_autostart.setChecked(is_autostart)
+        self.chk_autostart.toggled.connect(self.on_autostart_toggled)
+        
+        self.chk_start_minimized = QCheckBox("Arrancar escondido en la bandeja")
+        is_minimized = self.settings.value("start_minimized", False, type=bool)
+        self.chk_start_minimized.setChecked(is_minimized)
+        self.chk_start_minimized.toggled.connect(lambda v: self.settings.setValue("start_minimized", v))
+
+        chk_layout.addWidget(self.chk_autostart)
+        chk_layout.addWidget(self.chk_start_minimized)
+        frame_layout.addLayout(chk_layout)
 
         # --- BOTÓN INICIAR ---
         self.btn_toggle = QPushButton("INICIAR FILTRO")
@@ -291,6 +335,10 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(frame)
         self.toggle_filter()
+
+    def on_autostart_toggled(self, checked):
+        self.settings.setValue("autostart_enabled", checked)
+        set_autostart(checked)
 
     def on_close_action_changed(self, index):
         if index == 0: self.settings.setValue("close_action", "ask")
@@ -403,9 +451,34 @@ class MainWindow(QMainWindow):
                 self.force_quit()
 
 if __name__ == "__main__":
-    myappid = 'korvex.studio.antichatter.v1'
-    try: ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelId(myappid)
-    except: pass
+    # --- ESCUDO DE PRIVILEGIOS (LINUX AUTO-SUDO) ---
+    if platform.system() == "Linux" and os.geteuid() != 0:
+        print("KORVEX: Solicitando permisos de superusuario para interactuar con el hardware...")
+        env_vars = []
+        for var in ['DISPLAY', 'XAUTHORITY', 'WAYLAND_DISPLAY']:
+            if var in os.environ:
+                env_vars.append(f"{var}={os.environ[var]}")
+        
+        executable = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+        
+        args = ["pkexec", "env"] + env_vars
+        if getattr(sys, 'frozen', False):
+            args.append(executable)
+        else:
+            args.extend([sys.executable, executable])
+        args.extend(sys.argv[1:])
+        
+        try:
+            os.execvp("pkexec", args)
+        except Exception as e:
+            print("Error al pedir permisos:", e)
+            sys.exit(1)
+
+    # --- SOLO PARA WINDOWS (Agrupar icono en la barra) ---
+    if platform.system() == "Windows":
+        myappid = 'korvex.studio.antichatter.v1'
+        try: ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelId(myappid)
+        except: pass
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -419,5 +492,9 @@ if __name__ == "__main__":
         sys.exit(0)
 
     window = MainWindow()
-    window.show()
+    
+    # LÓGICA DE ARRANQUE ESCONDIDO
+    if not window.settings.value("start_minimized", False, type=bool):
+        window.show()
+        
     sys.exit(app.exec())
