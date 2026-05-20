@@ -17,8 +17,20 @@ from PyQt6.QtGui import QFont, QAction, QIcon, QPixmap
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 # ============================================================================
-# FUNCIONES DEL SISTEMA OPERATIVO (AUTOSTART)
+# FUNCIONES DEL SISTEMA OPERATIVO (AUTOSTART MULTIPLATAFORMA CORREGIDO)
 # ============================================================================
+def get_real_user_linux():
+    """ Detecta el usuario real y su Home en Linux incluso bajo sudo/pkexec """
+    import pwd
+    uid = os.environ.get('PKEXEC_UID') or os.environ.get('SUDO_UID')
+    if uid:
+        try:
+            pw = pwd.getpwuid(int(uid))
+            return pw.pw_name, pw.pw_dir
+        except Exception:
+            pass
+    return os.environ.get('USER'), os.path.expanduser("~")
+
 def set_autostart(enable):
     app_name = "KorvexAntiChatter"
     
@@ -43,27 +55,49 @@ def set_autostart(enable):
             print(f"Error autostart Windows: {e}")
 
     elif platform.system() == "Linux":
-        autostart_dir = os.path.expanduser("~/.config/autostart")
+        # CORRECCIÓN: Obtener el Home del usuario real, no de root
+        username, user_home = get_real_user_linux()
+        autostart_dir = os.path.join(user_home, ".config", "autostart")
+        
         if not os.path.exists(autostart_dir):
-            os.makedirs(autostart_dir)
+            try:
+                os.makedirs(autostart_dir)
+                uid = os.environ.get('PKEXEC_UID') or os.environ.get('SUDO_UID')
+                if uid: os.chown(autostart_dir, int(uid), -1)
+            except Exception: pass
         
         desktop_file_path = os.path.join(autostart_dir, f"{app_name}.desktop")
         
         if enable:
+            # Si el programa está instalado en la ruta global de Linux, usamos 'sudo -E'
+            # Esto, combinado con la regla sudoers, permite el inicio 100% invisible sin contraseña
+            if exec_path == "/usr/local/bin/KorvexAntiChatter":
+                exec_command = "sudo -E /usr/local/bin/KorvexAntiChatter"
+            else:
+                exec_command = exec_path
+
             desktop_content = f"""[Desktop Entry]
 Type=Application
-Exec={exec_path}
+Exec={exec_command}
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 Name={app_name}
 Comment=Korvex Anti-Chatter
+Icon=KorvexLogo
 """
-            with open(desktop_file_path, "w") as f:
-                f.write(desktop_content)
+            try:
+                with open(desktop_file_path, "w") as f:
+                    f.write(desktop_content)
+                # Asegurar que el archivo pertenece al usuario, no a root
+                uid = os.environ.get('PKEXEC_UID') or os.environ.get('SUDO_UID')
+                if uid: os.chown(desktop_file_path, int(uid), -1)
+            except Exception as e:
+                print(f"Error escribiendo autostart Linux: {e}")
         else:
             if os.path.exists(desktop_file_path):
-                os.remove(desktop_file_path)
+                try: os.remove(desktop_file_path)
+                except Exception: pass
 
 # ============================================================================
 # DIÁLOGO DE CIERRE
@@ -211,7 +245,7 @@ class MainWindow(QMainWindow):
         frame.setObjectName("MainFrame")
         frame_layout = QVBoxLayout(frame)
         
-        # --- CARGA DEL LOGO (Multiplataforma) ---
+        # --- CARGA DEL LOGO MULTIPLATAFORMA ---
         header_layout = QHBoxLayout()
         lbl_logo = QLabel()
         
@@ -220,10 +254,14 @@ class MainWindow(QMainWindow):
         else: 
             base_path = os.path.dirname(os.path.abspath(__file__))
             
-        # Busca el PNG o el ICO automáticamente
         logo_path = os.path.join(base_path, "KorvexLogo.png")
         if not os.path.exists(logo_path):
             logo_path = os.path.join(base_path, "KorvexLogo.ico")
+            
+        # MEJORA: Si no se encuentra localmente y estamos en Linux, buscar en la ruta del sistema
+        if not os.path.exists(logo_path) and platform.system() == "Linux":
+            if os.path.exists("/usr/share/pixmaps/KorvexLogo.png"):
+                logo_path = "/usr/share/pixmaps/KorvexLogo.png"
         
         if os.path.exists(logo_path):
             icon = QIcon(logo_path)
@@ -302,7 +340,7 @@ class MainWindow(QMainWindow):
         row_close.addWidget(self.combo_close)
         frame_layout.addLayout(row_close)
 
-        # --- FILA 4: CHECKBOXES (AUTOSTART Y MINIMIZADO) ---
+        # --- FILA 4: CHECKBOXES ---
         chk_layout = QVBoxLayout()
         
         self.chk_autostart = QCheckBox("Iniciar automáticamente con el sistema")
