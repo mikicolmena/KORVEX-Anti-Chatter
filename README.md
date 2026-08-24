@@ -22,7 +22,7 @@ Filtra de forma inteligente las pulsaciones dobles no deseadas en Windows y Linu
 
 ## 📥 Descarga
 
-Puedes descargar los binarios desde la sección [Releases](https://github.com/tu-usuario/tu-repo/releases).
+Puedes descargar los binarios desde la sección [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases).
 
 | Plataforma | Archivo | Instalación |
 |------------|---------|-------------|
@@ -35,7 +35,7 @@ Puedes descargar los binarios desde la sección [Releases](https://github.com/tu
 
 ### Windows
 
-1. Descarga `KorvexAntiChatter.exe` desde [Releases](https://github.com/tu-usuario/tu-repo/releases).
+1. Descarga `KorvexAntiChatter.exe` desde [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases).
 2. Ejecuta el archivo descargado.
 3. Si aparece SmartScreen, pulsa "Más información" y "Ejecutar de todas formas".
 
