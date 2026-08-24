@@ -2,19 +2,19 @@ import sys
 import os
 import platform
 import time
+import ctypes  # Añadido para Windows AppUserModelID
 
 try:
     import keyboard
-except ImportError:
-    print("Faltan librerías. Instala: pip install keyboard PyQt6")
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                                 QLabel, QPushButton, QSpinBox, QSystemTrayIcon, QMenu, QStyle, 
+                                 QFrame, QDialog, QCheckBox, QComboBox)
+    from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSettings, QTimer
+    from PyQt6.QtGui import QFont, QAction, QIcon, QPixmap
+    from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+except ImportError as e:
+    print(f"Faltan librerías: {e}. Instala: pip install keyboard PyQt6")
     sys.exit()
-
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QPushButton, QSpinBox, QSystemTrayIcon, QMenu, QStyle, 
-                             QFrame, QDialog, QCheckBox, QComboBox)
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QSettings
-from PyQt6.QtGui import QFont, QAction, QIcon, QPixmap
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 # ============================================================================
 # FUNCIONES DEL SISTEMA OPERATIVO (AUTOSTART MULTIPLATAFORMA CORREGIDO)
@@ -69,8 +69,9 @@ def set_autostart(enable):
         desktop_file_path = os.path.join(autostart_dir, f"{app_name}.desktop")
         
         if enable:
-            # Si el programa está instalado en la ruta global de Linux, usamos 'sudo -E'
-            # Esto, combinado con la regla sudoers, permite el inicio 100% invisible sin contraseña
+            # NOTA: Para que el arranque sea realmente invisible, se necesita una regla sudoers NOPASSWD.
+            # Aquí se usa 'sudo -E' solo si el binario está en /usr/local/bin, asumiendo que la regla existe.
+            # Si no, se ejecutará el comando normal y puede pedir contraseña.
             if exec_path == "/usr/local/bin/KorvexAntiChatter":
                 exec_command = "sudo -E /usr/local/bin/KorvexAntiChatter"
             else:
@@ -216,7 +217,9 @@ class MainWindow(QMainWindow):
         
         self.server = QLocalServer(self)
         self.server.removeServer("KorvexAntiChatterServer")
-        self.server.listen("KorvexAntiChatterServer")
+        # Comprobar si se pudo escuchar, si no, salir
+        if not self.server.listen("KorvexAntiChatterServer"):
+            sys.exit(0)  # Ya hay una instancia corriendo, no debería pasar por el socket de detección
         self.server.newConnection.connect(self.wake_up)
         
         self.core = AntiChatterCore()
@@ -417,9 +420,8 @@ class MainWindow(QMainWindow):
     def on_bounce_caught(self, tecla, total):
         self.lbl_stats.setText(f"Último bloqueo: '{tecla.upper()}' | Rebotes evitados: {total}")
         self.lbl_stats.setStyleSheet("color: #e74c3c; font-size: 11px; font-weight: bold;")
-        QApplication.processEvents()
-        time.sleep(0.05)
-        self.lbl_stats.setStyleSheet("color: #888; font-size: 11px;")
+        # Usar QTimer en lugar de time.sleep para no bloquear la UI
+        QTimer.singleShot(100, lambda: self.lbl_stats.setStyleSheet("color: #888; font-size: 11px;"))
 
     def setup_tray_icon(self, icon):
         self.tray_icon = QSystemTrayIcon(icon, self)
@@ -439,7 +441,11 @@ class MainWindow(QMainWindow):
         
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self.tray_icon_activated)
-        self.tray_icon.show()
+        # Mostrar el icono solo si hay bandeja disponible
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray_icon.show()
+        else:
+            print("Advertencia: No hay bandeja del sistema disponible. La ventana permanecerá abierta.")
 
     def tray_icon_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -460,6 +466,10 @@ class MainWindow(QMainWindow):
         close_action = self.settings.value("close_action", "ask")
         
         if close_action == "minimize":
+            # Si no hay bandeja, no ocultar, salir directamente
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                self.force_quit()
+                return
             event.ignore()
             self.hide()
             self.tray_icon.showMessage("KORVEX Anti-Chatter", "Protegiendo en segundo plano.", QSystemTrayIcon.MessageIcon.Information, 1500)
@@ -482,6 +492,9 @@ class MainWindow(QMainWindow):
                     self.combo_close.setCurrentIndex(2) 
                 
             if result == 1:
+                if not QSystemTrayIcon.isSystemTrayAvailable():
+                    self.force_quit()
+                    return
                 event.ignore()
                 self.hide()
                 self.tray_icon.showMessage("KORVEX Anti-Chatter", "Protegiendo en segundo plano.", QSystemTrayIcon.MessageIcon.Information, 1500)
