@@ -36,10 +36,8 @@ jobs:
           cp korvex-antichatter_*.deb apt-repo/pool/main/
           cp index.html apt-repo/index.html
           cd apt-repo
-          # Generar Packages y Packages.gz
           apt-ftparchive packages pool > Packages
           gzip -k -f Packages
-          # Generar Release con hashes
           apt-ftparchive release . > Release
           cd ..
 
