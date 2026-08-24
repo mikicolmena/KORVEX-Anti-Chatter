@@ -33,6 +33,8 @@ jobs:
         run: |
           mkdir -p apt-repo/pool/main
           cp korvex-antichatter_*.deb apt-repo/pool/main/
+          # Copiar la página de inicio (index.html)
+          cp index.html apt-repo/index.html
           cd apt-repo
           dpkg-scanpackages --multiversion pool > Packages
           gzip -k -f Packages

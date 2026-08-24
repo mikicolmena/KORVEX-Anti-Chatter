@@ -20,26 +20,28 @@ Filtra de forma inteligente las pulsaciones dobles no deseadas en Windows y Linu
 
 ---
 
-## 📥 Descarga
-
-Puedes descargar los binarios desde la sección [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases).
-
-| Plataforma | Archivo | Instalación |
-|------------|---------|-------------|
-| Windows | `KorvexAntiChatter.exe` | Ejecutar directamente |
-| Linux (Debian/Ubuntu) | `korvex-antichatter_1.0_all.deb` | `sudo apt install ./korvex-antichatter_1.0_all.deb` |
-
----
-
-## 🚀 Instalación
+## 📥 Descarga e instalación
 
 ### Windows
 
-1. Descarga `KorvexAntiChatter.exe` desde [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases).
+1. Descarga `KorvexAntiChatter.exe` desde la sección [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases).
 2. Ejecuta el archivo descargado.
 3. Si aparece SmartScreen, pulsa "Más información" y "Ejecutar de todas formas".
 
 ### Linux (Debian/Ubuntu)
 
+#### Opción A: Añadir repositorio APT (recomendado)
+
+Con este método instalas la aplicación y recibes actualizaciones automáticas con `apt upgrade`.  
+Copia y pega estos comandos en una terminal:
+
 ```bash
-sudo apt install ./korvex-antichatter_1.0_all.deb
+# Añadir clave pública del repositorio
+wget -O- https://mikicolmena.github.io/KORVEX-Anti-Chatter/public.key | sudo gpg --dearmor -o /usr/share/keyrings/korvex.gpg
+
+# Añadir el repositorio
+echo "deb [signed-by=/usr/share/keyrings/korvex.gpg] https://mikicolmena.github.io/KORVEX-Anti-Chatter stable main" | sudo tee /etc/apt/sources.list.d/korvex.list
+
+# Actualizar e instalar
+sudo apt update
+sudo apt install korvex-antichatter
