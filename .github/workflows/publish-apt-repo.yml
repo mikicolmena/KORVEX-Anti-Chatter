@@ -1,0 +1,71 @@
+name: Build and publish APT repository
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies for building
+        run: |
+          sudo apt update
+          sudo apt install -y dpkg-dev debhelper python3-pip
+
+      - name: Build .deb
+        run: bash build_deb.sh
+
+      - name: Prepare apt repository
+        run: |
+          mkdir -p apt-repo/pool/main
+          cp korvex-antichatter_*.deb apt-repo/pool/main/
+          cd apt-repo
+          dpkg-scanpackages --multiversion pool > Packages
+          gzip -k -f Packages
+          cat > Release <<EOF
+Origin: Korvex
+Label: Korvex Anti-Chatter Repo
+Suite: stable
+Codename: stable
+Architectures: all
+Components: main
+Description: Repositorio oficial de KORVEX Anti-Chatter
+EOF
+          cd ..
+
+      - name: Import GPG key and sign repository
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          cd apt-repo
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --clearsign -o InRelease Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" -abs -o Release.gpg Release
+          cd ..
+
+      - name: Copy public key to repo
+        run: |
+          cp public.key apt-repo/public.key
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apt-repo
+          publish_branch: gh-pages
+          keep_files: true
