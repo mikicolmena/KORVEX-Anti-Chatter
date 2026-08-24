@@ -1,0 +1,15 @@
+Package: korvex-antichatter
+Architecture: all
+Version: 1.0.0
+Priority: optional
+Section: utils
+Maintainer: Miki Colmena <macolmena60@gmail.com>
+Depends: python3, python3-pyqt6, pkexec
+Filename: pool/main/korvex-antichatter_1.0.0_all.deb
+Size: 449958
+MD5sum: 1c9c462760f270c295521c7908089306
+SHA1: ceb42800ba91f284cbd668546d27f12d684393b1
+SHA256: 3130f41ff1f142a8f1b63c885fa03895683efb89628032f253e09d7c14bb7e49
+SHA512: 21383ce8f2bbf044d66247cad95f6783041f5d4e1300de07eb66e8fdf5093504838f3551994a0708919fbf915e1dfa395926c4a000e9a5012f241ba38226d7b2
+Description: Filtro anti-rebotes de teclado
+

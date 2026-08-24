@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KORVEX Anti-Chatter</title>
+    <style>
+        body {
+            background-color: #0d0d0d;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid #333;
+        }
+        h1, h2 {
+            color: #00aaff;
+        }
+        code {
+            background: #2d2d30;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #ffcc66;
+            display: inline-block;
+            margin: 2px 0;
+        }
+        pre {
+            background: #2d2d30;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            color: #f0f0f0;
+        }
+        .btn {
+            display: inline-block;
+            background: #00aaff;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        .btn:hover {
+            background: #0077cc;
+        }
+        .separator {
+            border-top: 1px solid #333;
+            margin: 30px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ KORVEX Anti-Chatter</h1>
+        <p>Elimina el rebote de teclas en teclados mecánicos.<br>
+        Disponible para <strong>Windows</strong> y <strong>Linux</strong>.</p>
+
+        <h2>🚀 Instalación en Linux (Debian/Ubuntu)</h2>
+
+        <h3>Opción A: Añadir repositorio APT (recomendado)</h3>
+        <p>Copia y pega estos comandos en una terminal:</p>
+        <pre><code># Añadir clave pública
+wget -O- https://mikicolmena.github.io/KORVEX-Anti-Chatter/public.key | sudo gpg --dearmor -o /usr/share/keyrings/korvex.gpg
+
+# Añadir repositorio
+echo "deb [signed-by=/usr/share/keyrings/korvex.gpg] https://mikicolmena.github.io/KORVEX-Anti-Chatter stable main" | sudo tee /etc/apt/sources.list.d/korvex.list
+
+# Actualizar e instalar
+sudo apt update
+sudo apt install korvex-antichatter</code></pre>
+        <p>Después de esto, las actualizaciones se realizarán con <code>sudo apt update && sudo apt upgrade</code>.</p>
+
+        <div class="separator"></div>
+
+        <h3>Opción B: Descargar el .deb directamente</h3>
+        <p>Ve a la página de <a href="https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases" target="_blank" style="color:#00aaff;">Releases</a> y descarga el archivo <code>KorvexAntiChatter.deb</code>. Luego instálalo con:</p>
+        <pre><code>sudo apt install ./KorvexAntiChatter.deb</code></pre>
+        <p><em>Nota: con este método no se reciben actualizaciones automáticas.</em></p>
+
+        <div class="separator"></div>
+
+        <h2>🪟 Instalación en Windows</h2>
+        <p>Descarga <code>KorvexAntiChatter.exe</code> desde <a href="https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases" target="_blank" style="color:#00aaff;">Releases</a> y ejecútalo.</p>
+
+        <p style="text-align:center; margin-top:40px;">
+            <a class="btn" href="https://github.com/mikicolmena/KORVEX-Anti-Chatter" target="_blank">Ver código en GitHub</a>
+        </p>
+    </div>
+</body>
+</html>
