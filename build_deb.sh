@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Configuración
 APP_NAME="korvex-antichatter"
 VERSION="1.0.0"
 MAINTAINER="Miki Colmena <macolmena60@gmail.com>"
@@ -21,12 +20,8 @@ cp main.py "${PKG_DIR}/usr/bin/${APP_NAME}"
 chmod 755 "${PKG_DIR}/usr/bin/${APP_NAME}"
 cp KorvexLogo.png "${PKG_DIR}/usr/share/pixmaps/KorvexLogo.png"
 
-# Descargar e incluir keyboard (sin depender de pip en instalación)
-pip download keyboard --no-deps -d /tmp/keyboard_pkg >/dev/null 2>&1
-cd /tmp/keyboard_pkg
-unzip -q keyboard-*.whl -d keyboard_extracted
-cp -r keyboard_extracted/keyboard "${PKG_DIR}/usr/lib/python3/dist-packages/"
-cd - >/dev/null
+# Instalar keyboard dentro del paquete
+pip install --target="${PKG_DIR}/usr/lib/python3/dist-packages" keyboard
 
 # Archivo control
 cat > "${PKG_DIR}/DEBIAN/control" <<EOF
@@ -44,7 +39,6 @@ EOF
 cat > "${PKG_DIR}/DEBIAN/postinst" <<EOF
 #!/bin/sh
 set -e
-# Crear lanzador .desktop
 cat > /usr/share/applications/${APP_NAME}.desktop <<EOF2
 [Desktop Entry]
 Type=Application

@@ -3,6 +3,7 @@ name: Build and publish APT repository
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies for building
         run: |
           sudo apt update
-          sudo apt install -y dpkg-dev debhelper python3-pip
+          sudo apt install -y dpkg-dev debhelper python3-pip apt-utils
 
       - name: Build .deb
         run: bash build_deb.sh
@@ -33,20 +34,13 @@ jobs:
         run: |
           mkdir -p apt-repo/pool/main
           cp korvex-antichatter_*.deb apt-repo/pool/main/
-          # Copiar la página de inicio (index.html)
           cp index.html apt-repo/index.html
           cd apt-repo
-          dpkg-scanpackages --multiversion pool > Packages
+          # Generar Packages y Packages.gz
+          apt-ftparchive packages pool > Packages
           gzip -k -f Packages
-          cat > Release <<EOF
-Origin: Korvex
-Label: Korvex Anti-Chatter Repo
-Suite: stable
-Codename: stable
-Architectures: all
-Components: main
-Description: Repositorio oficial de KORVEX Anti-Chatter
-EOF
+          # Generar Release con hashes
+          apt-ftparchive release . > Release
           cd ..
 
       - name: Import GPG key and sign repository
