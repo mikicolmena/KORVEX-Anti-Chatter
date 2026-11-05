@@ -24,8 +24,13 @@ Bloquea las pulsaciones dobles no deseadas antes de que lleguen a ninguna aplica
 
 ### Windows
 
-1. Descarga `KorvexAntiChatter.exe` desde [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases/latest).
-2. Ejecútalo. Si aparece SmartScreen, pulsa «Más información» → «Ejecutar de todas formas».
+1. Descarga `KorvexAntiChatter-windows.zip` desde [Releases](https://github.com/mikicolmena/KORVEX-Anti-Chatter/releases/latest).
+2. Descomprímelo donde quieras (por ejemplo, en `Documentos`) y ejecuta `KorvexAntiChatter.exe` desde la carpeta.
+3. Si aparece SmartScreen, pulsa «Más información» → «Ejecutar de todas formas».
+
+> **Antivirus:** el programa no está firmado digitalmente y, como intercepta el teclado para filtrarlo, algunos
+> antivirus pueden marcarlo como sospechoso (falso positivo). No envía nada a ninguna parte ni guarda lo que escribes;
+> el código fuente completo está en este repositorio.
 
 > Windows no deja que un programa normal intercepte el teclado en ventanas que se ejecutan como administrador.
 > Si necesitas el filtro también en esas ventanas, ejecuta KORVEX como administrador.
@@ -65,6 +70,13 @@ así que el programa funciona sin contraseña ni root. Si justo después de inst
 cierra sesión y vuelve a entrar. La propia aplicación muestra los pasos alternativos (grupo `input`) si hicieran falta.
 
 > Ten en cuenta que, igual que cualquier herramienta de este tipo, esto permite a los programas de tu sesión leer el teclado.
+> Si otro usuario inicia sesión en el mismo equipo (cambio rápido de usuario), KORVEX suelta el teclado automáticamente.
+
+#### Icono en la bandeja (GNOME)
+
+GNOME no muestra iconos de bandeja de serie. Ubuntu ya trae la extensión necesaria; en Debian, Fedora y otros instala
+**AppIndicator and KStatusNotifierItem Support** (`sudo apt install gnome-shell-extension-appindicator` en Debian).
+Sin bandeja, «Minimizar» deja la ventana minimizada en la barra de tareas.
 
 ---
 
@@ -82,6 +94,17 @@ el modo «Solo las seleccionadas» con las teclas que realmente fallan (la venta
 
 ---
 
+## 🩺 Registro de diagnóstico
+
+Si algo falla, el programa guarda un registro pequeño (nunca guarda qué teclas pulsas):
+
+- **Linux:** `~/.local/state/korvex-antichatter/korvex.log`
+- **Windows:** `%LOCALAPPDATA%\KorvexAntiChatter\korvex.log`
+
+Adjúntalo si abres una incidencia.
+
+---
+
 ## 🧑‍💻 Ejecutar desde el código fuente
 
 ```bash
@@ -96,10 +119,23 @@ python main.py
 
 En Linux, sin el paquete instalado, necesitarás los permisos descritos arriba (la app te indica cómo).
 
+### Tests
+
+```bash
+python3 -m unittest discover -s tests -t . -v
+```
+
+Se ejecutan automáticamente en GitHub Actions con cada push y antes de cada publicación.
+
 ### Publicar una versión
 
-Crea una release en GitHub con un tag tipo `v1.2.0`. El workflow construye el `.deb` y el `.exe` con esa versión,
-los adjunta a la release y actualiza el repositorio APT firmado en GitHub Pages.
+Crea una release en GitHub con un tag que contenga el número de versión (`Version1.2`, `v1.2.0`…).
+El workflow pasa los tests, construye el `.deb` y el `.zip` de Windows con esa versión, los adjunta a la release
+y actualiza el repositorio APT firmado en GitHub Pages.
+
+**Firma del ejecutable de Windows (opcional):** si añades en *Settings → Secrets and variables → Actions* los secretos
+`WINDOWS_CERT_PFX_BASE64` (tu certificado de firma de código `.pfx` en base64) y `WINDOWS_CERT_PASSWORD`, el workflow
+firma `KorvexAntiChatter.exe` automáticamente. Sin ellos, se publica sin firmar.
 
 ---
 

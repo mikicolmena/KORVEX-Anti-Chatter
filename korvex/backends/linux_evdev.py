@@ -6,7 +6,6 @@ a /dev/input/event* (teclados) y a /dev/uinput; el paquete .deb lo concede al
 usuario de la sesión activa mediante una regla udev con `uaccess`.
 """
 
-import errno
 import glob
 import os
 import selectors
@@ -14,19 +13,48 @@ import struct
 import threading
 import time
 
+import logging
+
 import evdev
 from evdev import ecodes
 
 from ..core import DOWN, REPEAT, UP
 from ..i18n import tr
 
+log = logging.getLogger(__name__)
+
 VIRTUAL_NAME = "KORVEX Anti-Chatter"
 VIRTUAL_PHYS = "korvex-antichatter"
 RESCAN_INTERVAL = 2.0
+SEAT_CHECK_INTERVAL = 0.5
+SEAT_FILE = "/run/systemd/seats/seat0"
 
 _EVENT_STRUCT = struct.Struct("llHHi")   # struct input_event (timeval, type, code, value)
 _KIND = {0: UP, 1: DOWN, 2: REPEAT}
 _BUS_VIRTUAL = 0x06
+
+
+def _device_id(path):
+    """Identidad del nodo: Linux reutiliza los nombres eventN, pero cada nodo nuevo
+    tiene otro inode."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_ino, st.st_rdev
+
+
+def _seat_is_ours(seat_file=SEAT_FILE):
+    """False si otro usuario tiene ahora la sesión activa del asiento
+    (cambio rápido de usuario o pantalla de inicio de sesión)."""
+    try:
+        with open(seat_file, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("ACTIVE_UID="):
+                    return line.strip().split("=", 1)[1] == str(os.getuid())
+    except OSError:
+        return True          # sin systemd-logind: no se puede saber, se asume que sí
+    return False             # asiento sin sesión activa
 
 
 def _is_button(code):
@@ -69,7 +97,8 @@ class LinuxBackend:
         self._wake_r = self._wake_w = None
         self._grabbed = {}       # path -> _Grabbed
         self._pending = {}       # path -> InputDevice (esperando a que se suelten las teclas)
-        self._ignored = set()    # rutas que no son teclados físicos o no se pueden capturar
+        self._ignored = {}       # ruta -> identidad de nodos que no son teclados físicos
+        self._seat_owned = True
         self._sel = None
 
     # ------------------------------------------------------------------ API
@@ -92,9 +121,10 @@ class LinuxBackend:
         self._check_access()
         self._stop.clear()
         self._ignored.clear()
+        self._seat_owned = _seat_is_ours()
         self._wake_r, self._wake_w = os.pipe()
         self._scan()
-        if not self._grabbed and not self._pending:
+        if self._seat_owned and not self._grabbed and not self._pending:
             self._close_pipe()
             raise self._diagnose_no_keyboard()
         self._thread = threading.Thread(target=self._run, name="korvex-evdev", daemon=True)
@@ -138,21 +168,25 @@ class LinuxBackend:
         self._wake_r = self._wake_w = None
 
     def _scan(self):
-        known = set(self._grabbed) | set(self._pending) | self._ignored
+        if not self._seat_owned:
+            return
         for path in sorted(glob.glob("/dev/input/event*")):
-            if path in known:
+            if path in self._grabbed or path in self._pending:
+                continue
+            ident = _device_id(path)
+            if ident is None or self._ignored.get(path) == ident:
                 continue
             try:
                 dev = evdev.InputDevice(path)
             except OSError:
-                continue            # sin permiso o desconectado
+                continue            # sin permiso o desconectado: se reintenta en el próximo escaneo
             try:
                 if _is_physical_keyboard(dev):
                     self._pending[path] = dev
                     continue
             except OSError:
                 pass
-            self._ignored.add(path)
+            self._ignored[path] = ident
             dev.close()
         self._try_grab_pending()
 
@@ -161,26 +195,42 @@ class LinuxBackend:
             try:
                 if dev.active_keys():
                     continue        # no capturar con teclas pulsadas: se quedarían "atascadas"
+            except OSError:
+                self._discard_pending(path)
+                continue
+            try:
+                dev.grab()          # primero el grab (barato): si está ocupado, se reintenta luego
+            except OSError:
+                self._discard_pending(path)     # EBUSY (otro programa lo captura) o desconectado
+                continue
+            try:
                 ui = evdev.UInput.from_device(
                     dev, name=f"{VIRTUAL_NAME} ({dev.name})"[:79], phys=VIRTUAL_PHYS,
                     filtered_types=(ecodes.EV_SYN, ecodes.EV_FF, ecodes.EV_REP))
+            except Exception as e:
+                log.warning("No se pudo crear el teclado virtual para %s: %s", dev.name, e)
                 try:
-                    dev.grab()
-                except OSError:
-                    ui.close()
-                    raise
-            except OSError as e:
-                del self._pending[path]
-                if e.errno != errno.ENODEV:
-                    self._ignored.add(path)   # p. ej. EBUSY: otro programa ya lo captura
-                try:
-                    dev.close()
+                    dev.ungrab()
                 except OSError:
                     pass
+                self._discard_pending(path, ignore=True)
                 continue
             del self._pending[path]
             g = self._grabbed[path] = _Grabbed(dev, ui)
             self._watch(path, g)
+            log.info("Teclado capturado: %s (%s)", dev.name, path)
+
+    def _discard_pending(self, path, ignore=False):
+        dev = self._pending.pop(path, None)
+        if ignore:
+            ident = _device_id(path)
+            if ident is not None:
+                self._ignored[path] = ident
+        if dev is not None:
+            try:
+                dev.close()
+            except OSError:
+                pass
 
     def _watch(self, path, g):
         if self._sel is None:
@@ -202,6 +252,7 @@ class LinuxBackend:
         g = self._grabbed.pop(path, None)
         if not g:
             return
+        log.info("Teclado liberado: %s", path)
         # Dejar de vigilar ANTES de cerrar, para que un fd reutilizado no colisione.
         self._unwatch(g.dev.fd)
         self._unwatch(g.ui.fd)
@@ -225,6 +276,7 @@ class LinuxBackend:
         try:
             self._loop()
         except Exception as e:      # nunca dejar el teclado capturado si algo falla
+            log.exception("Error en el backend evdev")
             self._release_all()
             self.on_error(str(e))
 
@@ -233,10 +285,10 @@ class LinuxBackend:
         self._sel.register(self._wake_r, selectors.EVENT_READ, None)
         for path, g in self._grabbed.items():
             self._watch(path, g)
-        last_scan = time.monotonic()
+        last_scan = last_seat_check = time.monotonic()
         try:
             while not self._stop.is_set():
-                timeout = 0.1 if self._pending else RESCAN_INTERVAL
+                timeout = 0.1 if self._pending else SEAT_CHECK_INTERVAL
                 for key, _ in self._sel.select(timeout):
                     if key.data is None:
                         return
@@ -248,9 +300,22 @@ class LinuxBackend:
                     else:
                         self._forward_leds(path)
 
+                now = time.monotonic()
+                if now - last_seat_check >= SEAT_CHECK_INTERVAL:
+                    last_seat_check = now
+                    owned = _seat_is_ours()
+                    if owned != self._seat_owned:
+                        self._seat_owned = owned
+                        if owned:
+                            log.info("La sesión vuelve a estar activa: se recapturan los teclados")
+                            last_scan = 0          # escanear ya
+                        else:
+                            # Otro usuario usa el equipo: soltar el teclado para que sus
+                            # pulsaciones no pasen por este proceso.
+                            log.info("Otro usuario tiene la sesión activa: se liberan los teclados")
+                            self._release_all()
                 if self._pending:
                     self._try_grab_pending()
-                now = time.monotonic()
                 if now - last_scan >= RESCAN_INTERVAL:
                     last_scan = now
                     self._scan()

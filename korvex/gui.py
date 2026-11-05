@@ -1,6 +1,7 @@
 """Interfaz gráfica (PyQt6)."""
 
 import json
+import logging
 
 from PyQt6.QtCore import QEvent, QObject, QSettings, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QFont, QIcon, QKeySequence, QPixmap
@@ -10,11 +11,13 @@ from PyQt6.QtWidgets import (
     QPushButton, QSpinBox, QStyle, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
-from . import APP_NAME, ORG_NAME, SETTINGS_APP, __version__, autostart
+from . import APP_NAME, ORG_NAME, SETTINGS_APP, __version__, autostart, logs
 from .backends import BackendError, get_backend_class
 from .core import DebounceFilter
 from .i18n import tr
 from .resources import logo_path
+
+log = logging.getLogger(__name__)
 
 ACCENT = "#00aaff"
 
@@ -27,6 +30,7 @@ STYLE = f"""
     QPushButton#BtnToggle {{ border-radius: 5px; font-weight: bold; padding: 10px; }}
     QPushButton#LinkButton {{ background: transparent; border: none; color: #888; padding: 0; text-decoration: underline; }}
     QPushButton#LinkButton:hover {{ color: {ACCENT}; }}
+    QToolTip {{ background-color: #2d2d30; color: white; border: 1px solid #555; padding: 4px; }}
     QSpinBox {{ background: #2d2d30; color: {ACCENT}; border: 1px solid #3e3e42; padding: 4px; border-radius: 5px; font-weight: bold; }}
     QComboBox {{ background: #2d2d30; border: 1px solid #3e3e42; padding: 4px 8px; color: white; border-radius: 5px; }}
     QComboBox QAbstractItemView {{ background-color: #2d2d30; color: white; selection-background-color: {ACCENT}; border: 1px solid #3e3e42; }}
@@ -362,20 +366,21 @@ class MainWindow(QMainWindow):
         # --- umbrales ---
         self.spin_ms = self._spin(10, 200, self.settings.value("threshold_ms", 50, type=int))
         self.spin_ms.valueChanged.connect(lambda v: self.controller.set_threshold(v))
-        form.addLayout(self._row(tr("threshold_letters"), self.spin_ms))
+        form.addLayout(self._row(tr("threshold_letters"), self.spin_ms, tr("tip_threshold")))
 
         self.spin_space = self._spin(10, 300, self.settings.value("threshold_space_ms", 120, type=int))
         self.spin_space.valueChanged.connect(lambda v: self.controller.set_threshold(v, space=True))
-        form.addLayout(self._row(tr("threshold_space"), self.spin_space))
+        form.addLayout(self._row(tr("threshold_space"), self.spin_space, tr("tip_threshold_space")))
 
         # --- teclas a filtrar ---
         self.combo_mode = QComboBox()
         self.combo_mode.addItems([tr("mode_all"), tr("mode_selected")])
         self.combo_mode.setCurrentIndex(0 if self.controller.filter.filter_all else 1)
         self.combo_mode.currentIndexChanged.connect(self.on_mode_changed)
-        form.addLayout(self._row(tr("filter_mode"), self.combo_mode))
+        form.addLayout(self._row(tr("filter_mode"), self.combo_mode, tr("tip_mode")))
         self.btn_keys = QPushButton(tr("configure_keys"))
         self.btn_keys.clicked.connect(self.open_keys_dialog)
+        self.btn_keys.setToolTip(tr("tip_keys"))
         keys_row = QHBoxLayout()
         keys_row.addStretch()
         keys_row.addWidget(self.btn_keys)
@@ -444,9 +449,13 @@ class MainWindow(QMainWindow):
         return spin
 
     @staticmethod
-    def _row(text, widget):
+    def _row(text, widget, tooltip=None):
         row = QHBoxLayout()
-        row.addWidget(QLabel(text))
+        label = QLabel(text)
+        if tooltip:
+            label.setToolTip(tooltip)
+            widget.setToolTip(tooltip)
+        row.addWidget(label)
         row.addStretch()
         row.addWidget(widget)
         return row
@@ -457,6 +466,7 @@ class MainWindow(QMainWindow):
             self.controller.start()
             return True
         except BackendError as e:
+            log.warning("No se pudo iniciar el filtro: %s", e)
             if show_errors:
                 self.show_error(str(e))
             return False
@@ -478,6 +488,8 @@ class MainWindow(QMainWindow):
         if self._quitting:
             return
         self.show_window()
+        if logs.log_file():
+            message = f"{message}\n\n{tr('log_hint', path=logs.log_file())}"
         box = QMessageBox(QMessageBox.Icon.Warning, tr("err_title"), message, parent=self)
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         box.exec()
@@ -541,6 +553,16 @@ class MainWindow(QMainWindow):
     def tray_available():
         return QSystemTrayIcon.isSystemTrayAvailable()
 
+    def wait_for_tray(self, on_timeout, attempts=20):
+        """Reintenta mostrar el icono de la bandeja cada 0,5 s (unos 10 s en total)."""
+        if self.tray_available():
+            self.tray.show()
+        elif attempts > 0:
+            QTimer.singleShot(500, lambda: self.wait_for_tray(on_timeout, attempts - 1))
+        else:
+            log.info("No hay bandeja del sistema; se muestra la ventana")
+            on_timeout()
+
     def on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.isVisible() and not self.isMinimized():
@@ -565,10 +587,20 @@ class MainWindow(QMainWindow):
 
     def force_quit(self):
         self._quitting = True
+        self.shutdown()
+        QApplication.instance().quit()
+
+    def prepare_session_end(self):
+        """El sistema se apaga o se cierra la sesión: no preguntar ni bloquear el cierre."""
+        log.info("Fin de sesión del sistema")
+        self._quitting = True
+        self.settings.sync()
+
+    def shutdown(self):
+        self._quitting = True
         self.controller.stop()
         self.tray.hide()
         self.settings.sync()
-        QApplication.instance().quit()
 
     def closeEvent(self, event):
         if self._quitting:

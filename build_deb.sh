@@ -2,7 +2,7 @@
 # Construye el paquete .deb de KORVEX Anti-Chatter en dist/.
 #
 # Uso:  ./build_deb.sh            -> versión de korvex/__init__.py
-#       VERSION=1.2.0 ./build_deb.sh  (el workflow la pasa desde el tag de la release)
+#       VERSION=Version1.2 ./build_deb.sh  (el workflow pasa el tag de la release)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -13,7 +13,7 @@ MAINTAINER="Miki Colmena <macolmena60@gmail.com>"
 if [ -z "${VERSION:-}" ]; then
     VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' korvex/__init__.py)"
 fi
-VERSION="${VERSION#v}"
+VERSION="$(python3 packaging/set_version.py --print "$VERSION")"   # admite "Version1.2", "v1.2.0"…
 if ! [[ "$VERSION" =~ ^[0-9][A-Za-z0-9.+~-]*$ ]]; then
     echo "Versión no válida para Debian: '$VERSION'" >&2
     exit 1

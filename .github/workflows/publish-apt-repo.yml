@@ -1,9 +1,10 @@
 name: Build and publish (deb, exe, APT repository)
 
-# Al publicar una release en GitHub (tag tipo "v1.2.0" o "1.2.0"):
-#   1. Construye el .deb y el .exe con la versión del tag.
-#   2. Los sube como archivos adjuntos de la release.
-#   3. Regenera el repositorio APT firmado en GitHub Pages (rama gh-pages).
+# Al publicar una release en GitHub (tag tipo "Version1.2", "v1.2.0" o "1.2.0"):
+#   1. Pasa los tests.
+#   2. Construye el .deb y el .zip de Windows con la versión del tag.
+#   3. Los sube como archivos adjuntos de la release.
+#   4. Regenera el repositorio APT firmado en GitHub Pages (rama gh-pages).
 # Lanzado a mano (workflow_dispatch) solo construye y deja los artefactos en la ejecución.
 
 on:
@@ -15,6 +16,9 @@ permissions:
   contents: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -26,7 +30,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           if [ -n "$TAG" ]; then
-            V="${TAG#v}"
+            V="$(python3 packaging/set_version.py --print "$TAG")"
           else
             V="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' korvex/__init__.py)"
           fi
@@ -34,7 +38,7 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
   build-deb:
-    needs: version
+    needs: [tests, version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +52,7 @@ jobs:
           path: dist/*.deb
 
   build-windows:
-    needs: version
+    needs: [tests, version]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,18 +65,37 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: python packaging/set_version.py "$env:VERSION"
-      - name: Build .exe
+      # Modo carpeta (--onedir): da muchos menos falsos positivos de antivirus
+      # que un .exe único autoextraíble, y arranca más rápido.
+      - name: Build
         run: >
-          pyinstaller --noconfirm --onefile --windowed
+          pyinstaller --noconfirm --onedir --windowed
           --name KorvexAntiChatter
           --icon KorvexLogo.ico
           --add-data "korvex/assets;korvex/assets"
           --exclude-module evdev
           main.py
+      # Firma de código: solo si se han configurado los secretos
+      # WINDOWS_CERT_PFX_BASE64 (certificado .pfx en base64) y WINDOWS_CERT_PASSWORD.
+      - name: Sign
+        env:
+          CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:CERT_PFX_BASE64) { Write-Host "Sin certificado configurado: el .exe no se firma."; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /f $pfx /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\KorvexAntiChatter\KorvexAntiChatter.exe
+          $code = $LASTEXITCODE
+          Remove-Item $pfx
+          exit $code
+      - name: Zip
+        run: Compress-Archive -Path dist\KorvexAntiChatter -DestinationPath dist\KorvexAntiChatter-windows.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: exe
-          path: dist/KorvexAntiChatter.exe
+          name: windows
+          path: dist/KorvexAntiChatter-windows.zip
 
   publish:
     if: github.event_name == 'release'
@@ -89,7 +112,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" artifacts/deb/*.deb artifacts/exe/KorvexAntiChatter.exe --clobber
+        run: gh release upload "$TAG" artifacts/deb/*.deb artifacts/windows/KorvexAntiChatter-windows.zip --clobber
 
       - name: Install apt-ftparchive
         run: |

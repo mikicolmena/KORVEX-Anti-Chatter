@@ -2,8 +2,23 @@
 set -e
 
 if [ "$1" = "configure" ]; then
-    # Restos de la v1.0.0, que creaba este archivo fuera de dpkg.
+    # Restos de la v1.0, que creaba este archivo fuera de dpkg.
     rm -f /usr/share/applications/korvex-antichatter.desktop
+
+    # La v1.0 se ejecutaba como root y guardaba los ajustes en /root. Si se
+    # instala con sudo, se copian al usuario que lo ejecuta (si aún no tiene).
+    OLD_CONF=/root/.config/Korvex/AntiChatter.conf
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && [ -f "$OLD_CONF" ]; then
+        USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+        USER_GROUP="$(id -gn "$SUDO_USER" 2>/dev/null || true)"
+        if [ -n "$USER_HOME" ] && [ -n "$USER_GROUP" ] && [ -d "$USER_HOME/.config" ] \
+                && [ ! -e "$USER_HOME/.config/Korvex/AntiChatter.conf" ]; then
+            install -d -o "$SUDO_USER" -g "$USER_GROUP" -m 755 "$USER_HOME/.config/Korvex" \
+                && install -o "$SUDO_USER" -g "$USER_GROUP" -m 644 "$OLD_CONF" "$USER_HOME/.config/Korvex/AntiChatter.conf" \
+                && echo "korvex-antichatter: ajustes de la v1.0 copiados a $USER_HOME/.config/Korvex/" \
+                || true
+        fi
+    fi
 
     # Cargar uinput y aplicar la regla udev sin necesidad de reiniciar.
     modprobe uinput 2>/dev/null || true

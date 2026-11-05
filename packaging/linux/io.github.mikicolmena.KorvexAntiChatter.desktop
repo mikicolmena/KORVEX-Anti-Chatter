@@ -10,3 +10,4 @@ Icon=korvex-antichatter
 Terminal=false
 Categories=Utility;
 Keywords=keyboard;chatter;debounce;bounce;teclado;rebote;
+StartupWMClass=korvex-antichatter

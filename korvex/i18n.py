@@ -57,6 +57,17 @@ _STRINGS = {
         "err_missing_evdev": "Falta la librería python3-evdev. Instálala con: sudo apt install python3-evdev",
         "err_unsupported": "Este sistema operativo no está soportado.",
         "err_hook": "No se pudo instalar el hook de teclado (código {code}).",
+        "log_hint": "Más detalles en el registro:\n{path}",
+        "tip_threshold": (
+            "Si una tecla se vuelve a pulsar antes de este tiempo desde que se soltó, se considera un rebote.\n"
+            "Súbelo si aún se cuelan letras dobles; bájalo si desaparecen letras dobles legítimas (ll, rr, cc).\n"
+            "Lo habitual: 30–60 ms."),
+        "tip_threshold_space": (
+            "Lo mismo para la barra espaciadora, que por su tamaño suele rebotar más.\nLo habitual: 80–150 ms."),
+        "tip_mode": (
+            "«Todas»: filtra todas las teclas excepto Shift, Ctrl, Alt y Win/Super.\n"
+            "«Solo las seleccionadas»: filtra únicamente las teclas que elijas (las que fallan)."),
+        "tip_keys": "Elige qué teclas filtrar y mira cuántos rebotes ha tenido cada una.",
     },
     "en": {
         "threshold_letters": "Key threshold:",
@@ -111,6 +122,17 @@ _STRINGS = {
         "err_missing_evdev": "The python3-evdev library is missing. Install it with: sudo apt install python3-evdev",
         "err_unsupported": "This operating system is not supported.",
         "err_hook": "Could not install the keyboard hook (code {code}).",
+        "log_hint": "More details in the log:\n{path}",
+        "tip_threshold": (
+            "If a key is pressed again sooner than this after being released, it is treated as a bounce.\n"
+            "Raise it if double letters still slip through; lower it if legitimate double letters disappear.\n"
+            "Typical: 30–60 ms."),
+        "tip_threshold_space": (
+            "Same for the space bar, which tends to bounce more because of its size.\nTypical: 80–150 ms."),
+        "tip_mode": (
+            "\"All\": filters every key except Shift, Ctrl, Alt and Win/Super.\n"
+            "\"Selected only\": filters only the keys you choose (the faulty ones)."),
+        "tip_keys": "Choose which keys to filter and see how many bounces each one had.",
     },
 }
 
