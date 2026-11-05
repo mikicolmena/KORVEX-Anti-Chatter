@@ -1,0 +1,11 @@
+#!/usr/bin/python3
+# Lanzador de KORVEX Anti-Chatter instalado por el paquete .deb.
+# (Es un script Python a propósito: las entradas de autoarranque de la v1.0.0
+#  lo ejecutaban como "python3 /usr/bin/korvex-antichatter".)
+import sys
+
+sys.path.insert(0, "/usr/share/korvex-antichatter")
+
+from korvex.app import main  # noqa: E402
+
+sys.exit(main())

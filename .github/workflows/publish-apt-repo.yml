@@ -1,4 +1,10 @@
-name: Build and publish APT repository
+name: Build and publish (deb, exe, APT repository)
+
+# Al publicar una release en GitHub (tag tipo "v1.2.0" o "1.2.0"):
+#   1. Construye el .deb y el .exe con la versión del tag.
+#   2. Los sube como archivos adjuntos de la release.
+#   3. Regenera el repositorio APT firmado en GitHub Pages (rama gh-pages).
+# Lanzado a mano (workflow_dispatch) solo construye y deja los artefactos en la ejecución.
 
 on:
   release:
@@ -7,53 +13,130 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
-  build-and-publish:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -n "$TAG" ]; then
+            V="${TAG#v}"
+          else
+            V="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' korvex/__init__.py)"
+          fi
+          echo "Versión: $V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+  build-deb:
+    needs: version
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install dependencies for building
-        run: |
-          sudo apt update
-          sudo apt install -y dpkg-dev debhelper python3-pip apt-utils
-
+      - uses: actions/checkout@v4
       - name: Build .deb
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: bash build_deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
 
-      - name: Prepare apt repository
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip PyQt6 pyinstaller
+      - name: Set version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: python packaging/set_version.py "$env:VERSION"
+      - name: Build .exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name KorvexAntiChatter
+          --icon KorvexLogo.ico
+          --add-data "korvex/assets;korvex/assets"
+          --exclude-module evdev
+          main.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: dist/KorvexAntiChatter.exe
+
+  publish:
+    if: github.event_name == 'release'
+    needs: [version, build-deb, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Upload files to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" artifacts/deb/*.deb artifacts/exe/KorvexAntiChatter.exe --clobber
+
+      - name: Install apt-ftparchive
         run: |
-          mkdir -p apt-repo/pool/main
-          cp korvex-antichatter_*.deb apt-repo/pool/main/
-          cp index.html apt-repo/index.html
-          cd apt-repo
-          apt-ftparchive packages pool > Packages
-          gzip -k -f Packages
-          apt-ftparchive release . > Release
-          cd ..
+          sudo apt-get update
+          sudo apt-get install -y apt-utils
 
-      - name: Import GPG key and sign repository
+      - name: Build APT repository
+        run: |
+          set -euo pipefail
+          POOL=apt-repo/pool/main/k/korvex-antichatter
+          mkdir -p "$POOL"
+          cp artifacts/deb/*.deb "$POOL/"
+          cd apt-repo
+          # El paquete es "all"; se publica también en los índices de cada
+          # arquitectura habitual para que apt no muestre avisos.
+          ARCHS="all amd64 arm64 armhf i386"
+          for arch in $ARCHS; do
+            dir="dists/stable/main/binary-$arch"
+            mkdir -p "$dir"
+            apt-ftparchive packages pool > "$dir/Packages"
+            gzip -9 -k -f "$dir/Packages"
+          done
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin="KORVEX" \
+            -o APT::FTPArchive::Release::Label="KORVEX Anti-Chatter" \
+            -o APT::FTPArchive::Release::Suite="stable" \
+            -o APT::FTPArchive::Release::Codename="stable" \
+            -o APT::FTPArchive::Release::Architectures="$ARCHS" \
+            -o APT::FTPArchive::Release::Components="main" \
+            release dists/stable > ../Release.tmp
+          mv ../Release.tmp dists/stable/Release
+          cat dists/stable/Release
+
+      - name: Sign repository
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
+          set -euo pipefail
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          cd apt-repo
+          cd apt-repo/dists/stable
           gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --clearsign -o InRelease Release
           gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" -abs -o Release.gpg Release
-          cd ..
 
-      - name: Copy public key to repo
+      - name: Add web page and public key
         run: |
+          cp index.html apt-repo/index.html
           cp public.key apt-repo/public.key
 
       - name: Deploy to GitHub Pages

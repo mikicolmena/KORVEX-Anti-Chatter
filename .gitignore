@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Builds
+build/
+dist/
+*.spec
+*.deb
+
+# Herramientas locales (npm / Claude Code), no forman parte del proyecto
+node_modules/
+package.json
+package-lock.json
+.npmrc

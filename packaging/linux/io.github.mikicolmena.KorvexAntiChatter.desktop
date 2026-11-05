@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=KORVEX Anti-Chatter
+GenericName=Keyboard chatter filter
+GenericName[es]=Filtro anti-rebotes de teclado
+Comment=Blocks unwanted double key presses on mechanical keyboards
+Comment[es]=Bloquea las pulsaciones dobles no deseadas en teclados mecánicos
+Exec=korvex-antichatter
+Icon=korvex-antichatter
+Terminal=false
+Categories=Utility;
+Keywords=keyboard;chatter;debounce;bounce;teclado;rebote;

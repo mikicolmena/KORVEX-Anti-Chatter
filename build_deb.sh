@@ -1,67 +1,72 @@
 #!/bin/bash
-set -e
+# Construye el paquete .deb de KORVEX Anti-Chatter en dist/.
+#
+# Uso:  ./build_deb.sh            -> versión de korvex/__init__.py
+#       VERSION=1.2.0 ./build_deb.sh  (el workflow la pasa desde el tag de la release)
+set -euo pipefail
+cd "$(dirname "$0")"
 
 APP_NAME="korvex-antichatter"
-VERSION="1.0.0"
+DESKTOP_ID="io.github.mikicolmena.KorvexAntiChatter"
 MAINTAINER="Miki Colmena <macolmena60@gmail.com>"
-DESCRIPTION="Filtro anti-rebotes de teclado"
-PKG_DIR="build/deb/${APP_NAME}_${VERSION}_all"
 
-# Limpiar build anterior
-rm -rf build/deb
-mkdir -p "${PKG_DIR}/DEBIAN"
-mkdir -p "${PKG_DIR}/usr/bin"
-mkdir -p "${PKG_DIR}/usr/share/pixmaps"
-mkdir -p "${PKG_DIR}/usr/share/applications"
-mkdir -p "${PKG_DIR}/usr/lib/python3/dist-packages"
+if [ -z "${VERSION:-}" ]; then
+    VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' korvex/__init__.py)"
+fi
+VERSION="${VERSION#v}"
+if ! [[ "$VERSION" =~ ^[0-9][A-Za-z0-9.+~-]*$ ]]; then
+    echo "Versión no válida para Debian: '$VERSION'" >&2
+    exit 1
+fi
 
-# Copiar archivos
-cp main.py "${PKG_DIR}/usr/bin/${APP_NAME}"
-chmod 755 "${PKG_DIR}/usr/bin/${APP_NAME}"
-cp KorvexLogo.png "${PKG_DIR}/usr/share/pixmaps/KorvexLogo.png"
+BUILD="build/deb"
+PKG="${BUILD}/${APP_NAME}_${VERSION}_all"
+SHARE="${PKG}/usr/share/${APP_NAME}"
+OUT="dist/${APP_NAME}_${VERSION}_all.deb"
 
-# Instalar keyboard dentro del paquete
-pip install --target="${PKG_DIR}/usr/lib/python3/dist-packages" keyboard
+rm -rf "$BUILD"
+mkdir -p "${PKG}/DEBIAN" "${PKG}/usr/bin" "$SHARE" \
+         "${PKG}/usr/share/applications" \
+         "${PKG}/usr/share/icons/hicolor/256x256/apps" \
+         "${PKG}/usr/lib/udev/rules.d" \
+         "${PKG}/usr/lib/modules-load.d" \
+         "${PKG}/usr/share/doc/${APP_NAME}" \
+         dist
 
-# Archivo control
-cat > "${PKG_DIR}/DEBIAN/control" <<EOF
+# Código de la aplicación (sin cachés de Python)
+cp main.py "$SHARE/"
+cp -r korvex "$SHARE/"
+find "$SHARE" -name "__pycache__" -type d -prune -exec rm -rf {} +
+sed -i "s/^__version__ = .*/__version__ = \"${VERSION}\"/" "$SHARE/korvex/__init__.py"
+
+# Integración con el sistema
+install -m 755 packaging/linux/korvex-antichatter "${PKG}/usr/bin/${APP_NAME}"
+install -m 644 "packaging/linux/${DESKTOP_ID}.desktop" "${PKG}/usr/share/applications/"
+install -m 644 korvex/assets/korvex-antichatter.png "${PKG}/usr/share/icons/hicolor/256x256/apps/"
+install -m 644 packaging/linux/70-korvex-antichatter.rules "${PKG}/usr/lib/udev/rules.d/"
+install -m 644 packaging/linux/modules-load-korvex-antichatter.conf "${PKG}/usr/lib/modules-load.d/${APP_NAME}.conf"
+install -m 644 LICENSE "${PKG}/usr/share/doc/${APP_NAME}/copyright"
+install -m 755 packaging/debian/postinst packaging/debian/postrm "${PKG}/DEBIAN/"
+
+find "$PKG" -type d -exec chmod 755 {} +
+find "$SHARE" -type f -exec chmod 644 {} +
+
+INSTALLED_SIZE="$(du -sk --exclude=DEBIAN "$PKG" | cut -f1)"
+cat > "${PKG}/DEBIAN/control" <<EOF
 Package: ${APP_NAME}
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: all
 Maintainer: ${MAINTAINER}
-Depends: python3, python3-pyqt6, pkexec
-Description: ${DESCRIPTION}
+Installed-Size: ${INSTALLED_SIZE}
+Depends: python3 (>= 3.8), python3-pyqt6, python3-evdev
+Homepage: https://github.com/mikicolmena/KORVEX-Anti-Chatter
+Description: Filtro anti-rebotes (chatter) para teclados mecánicos
+ Bloquea las pulsaciones dobles no deseadas que producen los interruptores
+ mecánicos desgastados. Funciona en X11 y Wayland, con umbrales
+ configurables y la opción de filtrar solo las teclas que fallan.
 EOF
 
-# Script postinst
-cat > "${PKG_DIR}/DEBIAN/postinst" <<EOF
-#!/bin/sh
-set -e
-cat > /usr/share/applications/${APP_NAME}.desktop <<EOF2
-[Desktop Entry]
-Type=Application
-Name=KORVEX Anti-Chatter
-Comment=${DESCRIPTION}
-Exec=/usr/bin/${APP_NAME}
-Icon=KorvexLogo
-Terminal=false
-Categories=Utility;
-EOF2
-exit 0
-EOF
-chmod 755 "${PKG_DIR}/DEBIAN/postinst"
-
-# Script postrm
-cat > "${PKG_DIR}/DEBIAN/postrm" <<EOF
-#!/bin/sh
-set -e
-rm -f /usr/share/applications/${APP_NAME}.desktop
-exit 0
-EOF
-chmod 755 "${PKG_DIR}/DEBIAN/postrm"
-
-# Construir .deb
-dpkg-deb --build "${PKG_DIR}" "${APP_NAME}_${VERSION}_all.deb"
-echo "Paquete creado: ${APP_NAME}_${VERSION}_all.deb"
+dpkg-deb --root-owner-group --build "$PKG" "$OUT"
+echo "Paquete creado: $OUT"
