@@ -1,0 +1,20 @@
+Package: korvex-antichatter
+Architecture: all
+Version: 1.2
+Priority: optional
+Section: utils
+Maintainer: Miki Colmena <macolmena60@gmail.com>
+Installed-Size: 216
+Depends: python3 (>= 3.8), python3-pyqt6, python3-evdev
+Filename: pool/main/k/korvex-antichatter/korvex-antichatter_1.2_all.deb
+Size: 33936
+MD5sum: df1029ef5b216553ca74ce33bce65e91
+SHA1: c07ff8c1b795ed5acc045f44c56462d94c47314e
+SHA256: 93bd07f99e91117bdc8f2b0f7c3db81c8f102b36b567dd3e1ad00f8e005f1f59
+SHA512: 15cb360ef43006073c45a2a3789299787abd1a251657f7b40dd5f13de15be4fea997a2c562a492047b046c462f76f64c032167be11ab9c115a5607eb880766fd
+Homepage: https://github.com/mikicolmena/KORVEX-Anti-Chatter
+Description: Filtro anti-rebotes (chatter) para teclados mecánicos
+ Bloquea las pulsaciones dobles no deseadas que producen los interruptores
+ mecánicos desgastados. Funciona en X11 y Wayland, con umbrales
+ configurables y la opción de filtrar solo las teclas que fallan.
+
